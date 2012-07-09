@@ -1,0 +1,567 @@
+# HG changeset patch
+# Parent 5dddc7488f1980e280369eb053369c3faa6cbd11
+
+diff --git a/dbm/include/mcom_db.h b/dbm/include/mcom_db.h
+--- a/dbm/include/mcom_db.h
++++ b/dbm/include/mcom_db.h
+@@ -49,7 +49,7 @@
+ 
+ #ifdef __DBINTERFACE_PRIVATE
+ 
+-#ifdef HAVE_SYS_CDEFS_H
++#if defined(HAVE_SYS_CDEFS_H) && !defined(__musl__)
+ #include <sys/cdefs.h>
+ #else
+ #include "cdefs.h"
+diff --git a/ipc/chromium/src/base/debug_util_posix.cc b/ipc/chromium/src/base/debug_util_posix.cc
+--- a/ipc/chromium/src/base/debug_util_posix.cc
++++ b/ipc/chromium/src/base/debug_util_posix.cc
+@@ -5,7 +5,7 @@
+ #include "build/build_config.h"
+ #include "base/debug_util.h"
+ 
+-#define MOZ_HAVE_EXECINFO_H (!defined(ANDROID) && !defined(__OpenBSD__))
++#define MOZ_HAVE_EXECINFO_H (!defined(ANDROID) && !defined(__OpenBSD__) && !defined(__musl__))
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+diff --git a/ipc/chromium/src/base/file_util.h b/ipc/chromium/src/base/file_util.h
+--- a/ipc/chromium/src/base/file_util.h
++++ b/ipc/chromium/src/base/file_util.h
+@@ -12,7 +12,7 @@
+ 
+ #if defined(OS_WIN)
+ #include <windows.h>
+-#elif defined(ANDROID)
++#elif defined(ANDROID) || defined(__musl__)
+ #include <sys/stat.h>
+ #elif defined(OS_POSIX) 
+ #include <sys/types.h>
+@@ -466,7 +466,7 @@
+ #if defined(OS_WIN)
+   WIN32_FIND_DATA find_data_;
+   HANDLE find_handle_;
+-#elif defined(ANDROID)
++#elif defined(ANDROID) || defined(__musl__)
+   void *fts_;
+ #elif defined(OS_POSIX)
+   FTS* fts_;
+diff --git a/ipc/chromium/src/base/file_util_posix.cc b/ipc/chromium/src/base/file_util_posix.cc
+--- a/ipc/chromium/src/base/file_util_posix.cc
++++ b/ipc/chromium/src/base/file_util_posix.cc
+@@ -8,13 +8,17 @@
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <fnmatch.h>
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(__musl__)
+ #include <fts.h>
+ #endif
+ #include <libgen.h>
+ #include <stdio.h>
+ #include <string.h>
++#ifndef __musl__
+ #include <sys/errno.h>
++#else
++#include <errno.h>
++#endif
+ #include <sys/mman.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+@@ -123,7 +127,7 @@
+   if (!recursive)
+     return (rmdir(path_str) == 0);
+ 
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(__musl__)
+   // XXX Need ftsless impl for bionic
+   return false;
+ #else
+@@ -196,7 +200,7 @@
+     return false;
+   }
+ 
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(__musl__)
+   // XXX Need ftsless impl for bionic
+   return false;
+ #else
+@@ -419,7 +423,7 @@
+   std::string tmpdir_string = tmpdir.value();
+   // this should be OK since mkdtemp just replaces characters in place
+   char* buffer = const_cast<char*>(tmpdir_string.c_str());
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(__musl__)
+   char* dtemp = NULL;
+ #else
+   char* dtemp = mkdtemp(buffer);
+@@ -549,7 +553,7 @@
+ }
+ 
+ FileEnumerator::~FileEnumerator() {
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(__musl__)
+   if (fts_)
+     fts_close(fts_);
+ #endif
+@@ -561,7 +565,7 @@
+   if (!is_in_find_op_)
+     return;
+ 
+-#ifndef ANDROID
++#if !defined(ANDROID) && !defined(__musl__)
+   memcpy(&(info->stat), fts_ent_->fts_statp, sizeof(info->stat));
+   info->filename.assign(fts_ent_->fts_name);
+ #endif
+@@ -572,7 +576,7 @@
+ // large directories with many files this can be quite deep.
+ // TODO(erikkay) - get rid of this recursive pattern
+ FilePath FileEnumerator::Next() {
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(__musl__)
+   return FilePath();
+ #else
+   if (!is_in_find_op_) {
+diff --git a/ipc/chromium/src/base/time_posix.cc b/ipc/chromium/src/base/time_posix.cc
+--- a/ipc/chromium/src/base/time_posix.cc
++++ b/ipc/chromium/src/base/time_posix.cc
+@@ -65,8 +65,10 @@
+   timestruct.tm_wday   = exploded.day_of_week;  // mktime/timegm ignore this
+   timestruct.tm_yday   = 0;     // mktime/timegm ignore this
+   timestruct.tm_isdst  = -1;    // attempt to figure it out
++#ifndef __musl__
+   timestruct.tm_gmtoff = 0;     // not a POSIX field, so mktime/timegm ignore
+   timestruct.tm_zone   = NULL;  // not a POSIX field, so mktime/timegm ignore
++#endif
+ 
+   time_t seconds;
+ #ifdef ANDROID
+diff --git a/ipc/chromium/src/third_party/libevent/epoll.c b/ipc/chromium/src/third_party/libevent/epoll.c
+--- a/ipc/chromium/src/third_party/libevent/epoll.c
++++ b/ipc/chromium/src/third_party/libevent/epoll.c
+@@ -36,7 +36,11 @@
+ #else
+ #include <sys/_time.h>
+ #endif
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ #include <sys/epoll.h>
+ #include <signal.h>
+ #include <stdio.h>
+diff --git a/ipc/chromium/src/third_party/libevent/evbuffer.c b/ipc/chromium/src/third_party/libevent/evbuffer.c
+--- a/ipc/chromium/src/third_party/libevent/evbuffer.c
++++ b/ipc/chromium/src/third_party/libevent/evbuffer.c
+@@ -25,6 +25,8 @@
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#define _GNU_SOURCE /* for timerclear and friends */
++
+ #include <sys/types.h>
+ 
+ #ifdef HAVE_CONFIG_H
+diff --git a/ipc/chromium/src/third_party/libevent/event.c b/ipc/chromium/src/third_party/libevent/event.c
+--- a/ipc/chromium/src/third_party/libevent/event.c
++++ b/ipc/chromium/src/third_party/libevent/event.c
+@@ -28,6 +28,8 @@
+ #include "config.h"
+ #endif
+ 
++#define _GNU_SOURCE /* for timeradd and friends */
++
+ #ifdef WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+@@ -39,7 +41,11 @@
+ #else 
+ #include <sys/_time.h>
+ #endif
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ #include <stdio.h>
+ #include <stdlib.h>
+ #ifndef WIN32
+diff --git a/ipc/chromium/src/third_party/libevent/event.h b/ipc/chromium/src/third_party/libevent/event.h
+--- a/ipc/chromium/src/third_party/libevent/event.h
++++ b/ipc/chromium/src/third_party/libevent/event.h
+@@ -719,6 +719,11 @@
+ 
+ /* These functions deal with buffering input and output */
+ 
++#ifdef __musl__
++typedef unsigned char u_char;
++typedef unsigned short u_short;
++#endif
++
+ struct evbuffer {
+ 	u_char *buffer;
+ 	u_char *orig_buffer;
+diff --git a/ipc/chromium/src/third_party/libevent/event_tagging.c b/ipc/chromium/src/third_party/libevent/event_tagging.c
+--- a/ipc/chromium/src/third_party/libevent/event_tagging.c
++++ b/ipc/chromium/src/third_party/libevent/event_tagging.c
+@@ -45,7 +45,11 @@
+ #include <sys/ioctl.h>
+ #endif
+ 
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ #ifdef HAVE_SYS_TIME_H
+ #include <sys/time.h>
+ #endif
+diff --git a/ipc/chromium/src/third_party/libevent/evrpc.c b/ipc/chromium/src/third_party/libevent/evrpc.c
+--- a/ipc/chromium/src/third_party/libevent/evrpc.c
++++ b/ipc/chromium/src/third_party/libevent/evrpc.c
+@@ -28,6 +28,8 @@
+ #include "config.h"
+ #endif
+ 
++#define _GNU_SOURCE /* for timerclear and friends */
++
+ #ifdef WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <winsock2.h>
+@@ -42,7 +44,11 @@
+ #ifdef HAVE_SYS_TIME_H
+ #include <sys/time.h>
+ #endif
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ #include <stdio.h>
+ #include <stdlib.h>
+ #ifndef WIN32
+diff --git a/ipc/chromium/src/third_party/libevent/evsignal.h b/ipc/chromium/src/third_party/libevent/evsignal.h
+--- a/ipc/chromium/src/third_party/libevent/evsignal.h
++++ b/ipc/chromium/src/third_party/libevent/evsignal.h
+@@ -27,6 +27,10 @@
+ #ifndef _EVSIGNAL_H_
+ #define _EVSIGNAL_H_
+ 
++#if defined(__musl__) && !defined(NSIG)
++#define NSIG 64
++#endif
++
+ typedef void (*ev_sighandler_t)(int);
+ 
+ struct evsignal_info {
+diff --git a/ipc/chromium/src/third_party/libevent/evutil.h b/ipc/chromium/src/third_party/libevent/evutil.h
+--- a/ipc/chromium/src/third_party/libevent/evutil.h
++++ b/ipc/chromium/src/third_party/libevent/evutil.h
+@@ -41,6 +41,8 @@
+ #include "event-config.h"
+ #ifdef _EVENT_HAVE_SYS_TIME_H
+ #include <sys/time.h>
++#else
++#error wtf
+ #endif
+ #ifdef _EVENT_HAVE_STDINT_H
+ #include <stdint.h>
+diff --git a/ipc/chromium/src/third_party/libevent/http.c b/ipc/chromium/src/third_party/libevent/http.c
+--- a/ipc/chromium/src/third_party/libevent/http.c
++++ b/ipc/chromium/src/third_party/libevent/http.c
+@@ -29,6 +29,10 @@
+ #include "config.h"
+ #endif
+ 
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
++
+ #ifdef HAVE_SYS_PARAM_H
+ #include <sys/param.h>
+ #endif
+@@ -50,7 +54,11 @@
+ #include <sys/wait.h>
+ #endif
+ 
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ 
+ #ifndef WIN32
+ #include <netinet/in.h>
+diff --git a/ipc/chromium/src/third_party/libevent/poll.c b/ipc/chromium/src/third_party/libevent/poll.c
+--- a/ipc/chromium/src/third_party/libevent/poll.c
++++ b/ipc/chromium/src/third_party/libevent/poll.c
+@@ -36,7 +36,11 @@
+ #else
+ #include <sys/_time.h>
+ #endif
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ #include <poll.h>
+ #include <signal.h>
+ #include <stdio.h>
+diff --git a/ipc/chromium/src/third_party/libevent/select.c b/ipc/chromium/src/third_party/libevent/select.c
+--- a/ipc/chromium/src/third_party/libevent/select.c
++++ b/ipc/chromium/src/third_party/libevent/select.c
+@@ -39,7 +39,14 @@
+ #ifdef HAVE_SYS_SELECT_H
+ #include <sys/select.h>
+ #endif
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#ifndef NFDBITS
++#define NFDBITS (8 * sizeof(unsigned long))
++#endif
++#endif
+ #include <signal.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+diff --git a/ipc/chromium/src/third_party/libevent/signal.c b/ipc/chromium/src/third_party/libevent/signal.c
+--- a/ipc/chromium/src/third_party/libevent/signal.c
++++ b/ipc/chromium/src/third_party/libevent/signal.c
+@@ -30,6 +30,8 @@
+ #include "config.h"
+ #endif
+ 
++#define _GNU_SOURCE /* overkill for struct sigaction, but *eh* */
++
+ #ifdef WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <winsock2.h>
+@@ -40,7 +42,11 @@
+ #ifdef HAVE_SYS_TIME_H
+ #include <sys/time.h>
+ #endif
++#ifndef __musl__
+ #include <sys/queue.h>
++#else
++#include "compat/sys/queue.h"
++#endif
+ #ifdef HAVE_SYS_SOCKET_H
+ #include <sys/socket.h>
+ #endif
+diff --git a/js/src/jsnativestack.cpp b/js/src/jsnativestack.cpp
+--- a/js/src/jsnativestack.cpp
++++ b/js/src/jsnativestack.cpp
+@@ -100,6 +100,40 @@
+     return ptib->tib_pstacklimit;
+ }
+ 
++#elif __musl__
++#include <stdio.h>
++
++void *
++GetNativeStackBaseImpl()
++{
++    /* get a pointer on our stack... */
++    unsigned long p = (unsigned long) (void *) &p;
++    unsigned long lo, hi;
++    char *line;
++
++    /* open /proc/self/maps */
++    FILE *maps = fopen("/proc/self/maps", "r");
++    if (!maps) return NULL; /* and blow up */
++
++    line = new char[1024];
++    if (line == NULL) return NULL; /* and blow up */
++
++    while (fgets(line, 1024, maps)) {
++        if (sscanf(line, "%lx-%lx", &lo, &hi) == 2) {
++            if (lo <= p && hi > p) {
++                /* found it! */
++                break;
++            } else lo = 0;
++        }
++    }
++
++    /* clean up */
++    delete line;
++    fclose(maps);
++
++    return (void *) lo;
++}
++
+ #else /* XP_UNIX */
+ 
+ void *
+diff --git a/memory/mozalloc/mozalloc.cpp b/memory/mozalloc/mozalloc.cpp
+--- a/memory/mozalloc/mozalloc.cpp
++++ b/memory/mozalloc/mozalloc.cpp
+@@ -210,7 +210,7 @@
+ 
+ #if defined(XP_MACOSX)
+     return malloc_size(ptr);
+-#elif defined(MOZ_MEMORY) || (defined(XP_LINUX) && !defined(ANDROID))
++#elif defined(MOZ_MEMORY) || (defined(XP_LINUX) && !defined(ANDROID) && !defined(__musl__))
+     // Android bionic libc doesn't have malloc_usable_size.
+     return malloc_usable_size(ptr);
+ #elif defined(XP_WIN)
+diff --git a/nsprpub/pr/src/misc/prnetdb.c b/nsprpub/pr/src/misc/prnetdb.c
+--- a/nsprpub/pr/src/misc/prnetdb.c
++++ b/nsprpub/pr/src/misc/prnetdb.c
+@@ -64,7 +64,8 @@
+ #if defined(SOLARIS) || (defined(BSDI) && defined(_REENTRANT)) \
+ 	|| (defined(LINUX) && defined(_REENTRANT) \
+         && !(defined(__GLIBC__) && __GLIBC__ >= 2) \
+-        && !defined(ANDROID))
++        && !defined(ANDROID) \
++        && !defined(__musl__))
+ #define _PR_HAVE_GETPROTO_R
+ #define _PR_HAVE_GETPROTO_R_POINTER
+ #endif
+diff --git a/nsprpub/pr/src/pthreads/ptio.c b/nsprpub/pr/src/pthreads/ptio.c
+--- a/nsprpub/pr/src/pthreads/ptio.c
++++ b/nsprpub/pr/src/pthreads/ptio.c
+@@ -47,6 +47,10 @@
+ #include <sys/resource.h>
+ #endif
+ 
++#ifdef __musl__
++#define SOL_TCP IPPROTO_TCP
++#endif
++
+ #ifdef SOLARIS
+ /*
+  * Define HAVE_SENDFILEV if the system has the sendfilev() system call.
+diff --git a/toolkit/crashreporter/google-breakpad/src/client/linux/handler/exception_handler.h b/toolkit/crashreporter/google-breakpad/src/client/linux/handler/exception_handler.h
+--- a/toolkit/crashreporter/google-breakpad/src/client/linux/handler/exception_handler.h
++++ b/toolkit/crashreporter/google-breakpad/src/client/linux/handler/exception_handler.h
+@@ -198,11 +198,18 @@
+   struct CrashContext {
+     siginfo_t siginfo;
+     pid_t tid;  // the crashing thread.
++#ifndef __musl__
+     struct ucontext context;
+ #if !defined(__ARM_EABI__)
+     // #ifdef this out because FP state is not part of user ABI for Linux ARM.
+     struct _libc_fpstate float_state;
+ #endif
++#else
++    ucontext_t context;
++#if !defined(__ARM_EABI__)
++    struct __fpstate float_state;
++#endif
++#endif
+   };
+ 
+   // Returns whether out-of-process dump generation is used or not.
+diff --git a/toolkit/crashreporter/google-breakpad/src/common/linux/linux_syscall_support.h b/toolkit/crashreporter/google-breakpad/src/common/linux/linux_syscall_support.h
+--- a/toolkit/crashreporter/google-breakpad/src/common/linux/linux_syscall_support.h
++++ b/toolkit/crashreporter/google-breakpad/src/common/linux/linux_syscall_support.h
+@@ -119,6 +119,10 @@
+ #endif
+ #endif
+ 
++#ifdef __musl__
++typedef long long loff_t;
++#endif
++
+ /* The Android NDK #defines these. */
+ #ifdef stat64
+ #undef stat64
+diff --git a/toolkit/crashreporter/google-breakpad/src/common/stabs_reader.h b/toolkit/crashreporter/google-breakpad/src/common/stabs_reader.h
+--- a/toolkit/crashreporter/google-breakpad/src/common/stabs_reader.h
++++ b/toolkit/crashreporter/google-breakpad/src/common/stabs_reader.h
+@@ -49,7 +49,7 @@
+ #include <stddef.h>
+ #include <stdint.h>
+ 
+-#ifdef HAVE_A_OUT_H
++#if defined(HAVE_A_OUT_H) && !defined(__musl__)
+ #include <a.out.h>
+ #endif
+ #ifdef HAVE_MACH_O_NLIST_H
+diff --git a/toolkit/xre/nsSigHandlers.cpp b/toolkit/xre/nsSigHandlers.cpp
+--- a/toolkit/xre/nsSigHandlers.cpp
++++ b/toolkit/xre/nsSigHandlers.cpp
+@@ -156,7 +156,7 @@
+   *mxcsr &= ~SSE_STATUS_FLAGS; /* clear all pending SSE exceptions */
+ #endif
+ #endif
+-#if defined(LINUX) && !defined(ANDROID)
++#if defined(LINUX) && !defined(ANDROID) && !defined(__musl__)
+   ucontext_t *uc = (ucontext_t *)context;
+ 
+ #if defined(__i386__)
+diff --git a/tools/profiler/platform-linux.cc b/tools/profiler/platform-linux.cc
+--- a/tools/profiler/platform-linux.cc
++++ b/tools/profiler/platform-linux.cc
+@@ -131,7 +131,7 @@
+       : sampler_(sampler),
+         signal_handler_installed_(false),
+         vm_tgid_(getpid()),
+-#ifndef XP_MACOSX
++#if !defined(XP_MACOSX) && !defined(__musl__)
+         vm_tid_(gettid()),
+ #endif
+         signal_sender_launched_(false)
+@@ -154,6 +154,10 @@
+ #endif
+       }
+ 
++#ifdef __musl__
++#define useconds_t unsigned
++#endif
++
+       // Convert ms to us and subtract 100 us to compensate delays
+       // occuring during signal delivery.
+       // TODO measure and confirm this.
+diff --git a/xpcom/ds/nsMathUtils.h b/xpcom/ds/nsMathUtils.h
+--- a/xpcom/ds/nsMathUtils.h
++++ b/xpcom/ds/nsMathUtils.h
+@@ -102,6 +102,12 @@
+     // Darwin has deprecated |finite| and recommends |isfinite|. The former is
+     // not present in the iOS SDK.
+     return std::isfinite(d);
++#elif defined(__musl__)
++#ifdef __cplusplus
++    return std::isfinite(d);
++#else
++    return isfinite(d);
++#endif
+ #else
+     return finite(d);
+ #endif
+diff --git a/xpcom/glue/standalone/nsGlueLinkingDlopen.cpp b/xpcom/glue/standalone/nsGlueLinkingDlopen.cpp
+--- a/xpcom/glue/standalone/nsGlueLinkingDlopen.cpp
++++ b/xpcom/glue/standalone/nsGlueLinkingDlopen.cpp
+@@ -125,7 +125,7 @@
+     sTop = d;
+ }
+ 
+-#if defined(LINUX) && !defined(ANDROID)
++#if defined(LINUX) && !defined(ANDROID) && !defined(__musl__)
+ static const unsigned int bufsize = 4096;
+ 
+ #ifdef HAVE_64BIT_OS
+@@ -184,7 +184,7 @@
+ static void
+ ReadDependentCB(const char *aDependentLib, bool do_preload)
+ {
+-#if defined(LINUX) && !defined(ANDROID)
++#if defined(LINUX) && !defined(ANDROID) && !defined(__musl__)
+     if (do_preload)
+         preload(aDependentLib);
+ #endif
+diff --git a/xpcom/io/nsLocalFileUnix.cpp b/xpcom/io/nsLocalFileUnix.cpp
+--- a/xpcom/io/nsLocalFileUnix.cpp
++++ b/xpcom/io/nsLocalFileUnix.cpp
+@@ -398,7 +398,7 @@
+         PR_Delete(mPath.get());
+     }
+ 
+-#if defined(LINUX) && !defined(ANDROID)
++#if defined(LINUX) && !defined(ANDROID) && !defined(__musl__)
+     if (flags & OS_READAHEAD) {
+         readahead(PR_FileDesc2NativeHandle(*_retval), 0, 0);
+     }

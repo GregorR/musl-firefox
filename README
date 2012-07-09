@@ -1,0 +1,22 @@
+This is ongoing work to port Firefox to the musl C library. Currently it
+doesn't work, but compiles, so that's a start.
+
+prereqs/ contains build scripts for the prerequisites, configured to build with
+musl-cross compilers from http://bitbucket.org/GregorR/musl-cross . Just set up
+its config.sh and run ./build.sh to build prereqs.
+
+To build Firefox itself, check out your favorite branch of Firefox from
+Mercurial into 'src', then use Mercurial's mq extension to apply the patches:
+
+$ ln -s ../../patches src/.hg/patches
+$ cd src
+$ hg qpush -a
+
+Configure it how you'd like
+
+$ cp ../mozconfig .mozconfig
+$ vim .mozconfig
+
+And build:
+
+$ make -f client.mk

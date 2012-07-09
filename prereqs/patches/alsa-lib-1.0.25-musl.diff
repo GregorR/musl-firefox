@@ -1,0 +1,408 @@
+diff -ruN alsa-lib-1.0.25/dladdr_hack.c alsa-lib-1.0.25-patched/dladdr_hack.c
+--- alsa-lib-1.0.25/dladdr_hack.c	1969-12-31 19:00:00.000000000 -0500
++++ alsa-lib-1.0.25-patched/dladdr_hack.c	2012-07-09 00:20:12.072307742 -0400
+@@ -0,0 +1,18 @@
++#ifndef HAVE_DLADDR_HACK
++#define HAVE_DLADDR_HACK
++
++           typedef struct {
++               const char *dli_fname; /* Pathname of shared object that
++                                          contains address */
++               void *dli_fbase; /* Address at which shared object
++                                          is loaded */
++               const char *dli_sname; /* Name of nearest symbol with address
++                                          lower than addr */
++               void *dli_saddr; /* Exact address of symbol named
++                                          in dli_sname */
++           } Dl_info;
++
++static int dladdr(void *addr, Dl_info *info) {
++        return 0;
++}
++#endif
+diff -ruN alsa-lib-1.0.25/include/global.h alsa-lib-1.0.25-patched/include/global.h
+--- alsa-lib-1.0.25/include/global.h	2012-01-25 02:56:56.000000000 -0500
++++ alsa-lib-1.0.25-patched/include/global.h	2012-07-09 00:21:09.567302797 -0400
+@@ -29,7 +29,7 @@
+ #define __ALSA_GLOBAL_H_
+ 
+ /* for timeval and timespec */
+-#include <time.h>
++#include <sys/time.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -133,7 +133,7 @@
+ 
+ int snd_user_file(const char *file, char **result);
+ 
+-#if !defined(_POSIX_C_SOURCE) && !defined(_POSIX_SOURCE)
++#if 0
+ struct timeval {
+ 	time_t		tv_sec;		/* seconds */
+ 	long		tv_usec;	/* microseconds */
+diff -ruN alsa-lib-1.0.25/include/pcm.h alsa-lib-1.0.25-patched/include/pcm.h
+--- alsa-lib-1.0.25/include/pcm.h	2012-01-25 02:56:56.000000000 -0500
++++ alsa-lib-1.0.25-patched/include/pcm.h	2012-07-09 00:20:47.760304673 -0400
+@@ -33,6 +33,7 @@
+ extern "C" {
+ #endif
+ 
++#include <stdint.h>
+ /**
+  *  \defgroup PCM PCM Interface
+  *  See the \ref pcm page for more details.
+@@ -941,10 +942,10 @@
+ int snd_pcm_format_physical_width(snd_pcm_format_t format);		/* in bits */
+ snd_pcm_format_t snd_pcm_build_linear_format(int width, int pwidth, int unsignd, int big_endian);
+ ssize_t snd_pcm_format_size(snd_pcm_format_t format, size_t samples);
+-u_int8_t snd_pcm_format_silence(snd_pcm_format_t format);
+-u_int16_t snd_pcm_format_silence_16(snd_pcm_format_t format);
+-u_int32_t snd_pcm_format_silence_32(snd_pcm_format_t format);
+-u_int64_t snd_pcm_format_silence_64(snd_pcm_format_t format);
++uint8_t snd_pcm_format_silence(snd_pcm_format_t format);
++uint16_t snd_pcm_format_silence_16(snd_pcm_format_t format);
++uint32_t snd_pcm_format_silence_32(snd_pcm_format_t format);
++uint64_t snd_pcm_format_silence_64(snd_pcm_format_t format);
+ int snd_pcm_format_set_silence(snd_pcm_format_t format, void *buf, unsigned int samples);
+ 
+ snd_pcm_sframes_t snd_pcm_bytes_to_frames(snd_pcm_t *pcm, ssize_t bytes);
+diff -ruN alsa-lib-1.0.25/src/compat/hsearch_r.c alsa-lib-1.0.25-patched/src/compat/hsearch_r.c
+--- alsa-lib-1.0.25/src/compat/hsearch_r.c	2012-01-25 02:56:56.000000000 -0500
++++ alsa-lib-1.0.25-patched/src/compat/hsearch_r.c	2012-07-09 00:20:10.770307854 -0400
+@@ -1,236 +0,0 @@
+-/* Copyright (C) 1993, 1995, 1996, 1997 Free Software Foundation, Inc.
+-   This file is part of the GNU C Library.
+-   Contributed by Ulrich Drepper <drepper@gnu.ai.mit.edu>, 1993.
+-
+-   The GNU C Library is free software; you can redistribute it and/or
+-   modify it under the terms of the GNU Lesser General Public License as
+-   published by the Free Software Foundation; either version 2.1 of the
+-   License, or (at your option) any later version.
+-
+-   The GNU C Library is distributed in the hope that it will be useful,
+-   but WITHOUT ANY WARRANTY; without even the implied warranty of
+-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-   Lesser General Public License for more details.
+-
+-   You should have received a copy of the GNU Lesser General Public
+-   License along with the GNU C Library; see the file COPYING.LIB.  If not,
+-   write to the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+-   Boston, MA 02111-1307, USA.  */
+-
+-#include <errno.h>
+-#include <malloc.h>
+-#include <string.h>
+-
+-#define __USE_GNU
+-#ifndef __set_errno
+-#define __set_errno(e) errno = (e)
+-#endif
+-#include <search.h>
+-
+-/* [Aho,Sethi,Ullman] Compilers: Principles, Techniques and Tools, 1986
+-   [Knuth]            The Art of Computer Programming, part 3 (6.4)  */
+-
+-
+-/* The reentrant version has no static variables to maintain the state.
+-   Instead the interface of all functions is extended to take an argument
+-   which describes the current status.  */
+-typedef struct _ENTRY
+-{
+-  unsigned int used;
+-  ENTRY entry;
+-}
+-_ENTRY;
+-
+-
+-/* For the used double hash method the table size has to be a prime. To
+-   correct the user given table size we need a prime test.  This trivial
+-   algorithm is adequate because
+-   a)  the code is (most probably) called a few times per program run and
+-   b)  the number is small because the table must fit in the core  */
+-static int
+-isprime (unsigned int number)
+-{
+-  /* no even number will be passed */
+-  unsigned int div = 3;
+-
+-  while (div * div < number && number % div != 0)
+-    div += 2;
+-
+-  return number % div != 0;
+-}
+-
+-
+-/* Before using the hash table we must allocate memory for it.
+-   Test for an existing table are done. We allocate one element
+-   more as the found prime number says. This is done for more effective
+-   indexing as explained in the comment for the hsearch function.
+-   The contents of the table is zeroed, especially the field used
+-   becomes zero.  */
+-int
+-hcreate_r (nel, htab)
+-     size_t nel;
+-     struct hsearch_data *htab;
+-{
+-  /* Test for correct arguments.  */
+-  if (htab == NULL)
+-    {
+-      __set_errno (EINVAL);
+-      return 0;
+-    }
+-
+-  /* There is still another table active. Return with error. */
+-  if (htab->table != NULL)
+-    return 0;
+-
+-  /* Change nel to the first prime number not smaller as nel. */
+-  nel |= 1;      /* make odd */
+-  while (!isprime (nel))
+-    nel += 2;
+-
+-  htab->size = nel;
+-  htab->filled = 0;
+-
+-  /* allocate memory and zero out */
+-  htab->table = (_ENTRY *) calloc (htab->size + 1, sizeof (_ENTRY));
+-  if (htab->table == NULL)
+-    return 0;
+-
+-  /* everything went alright */
+-  return 1;
+-}
+-
+-
+-/* After using the hash table it has to be destroyed. The used memory can
+-   be freed and the local static variable can be marked as not used.  */
+-void
+-hdestroy_r (htab)
+-     struct hsearch_data *htab;
+-{
+-  /* Test for correct arguments.  */
+-  if (htab == NULL)
+-    {
+-      __set_errno (EINVAL);
+-      return;
+-    }
+-
+-  if (htab->table != NULL)
+-    /* free used memory */
+-    free (htab->table);
+-
+-  /* the sign for an existing table is an value != NULL in htable */
+-  htab->table = NULL;
+-}
+-
+-
+-/* This is the search function. It uses double hashing with open addressing.
+-   The argument item.key has to be a pointer to an zero terminated, most
+-   probably strings of chars. The function for generating a number of the
+-   strings is simple but fast. It can be replaced by a more complex function
+-   like ajw (see [Aho,Sethi,Ullman]) if the needs are shown.
+-
+-   We use an trick to speed up the lookup. The table is created by hcreate
+-   with one more element available. This enables us to use the index zero
+-   special. This index will never be used because we store the first hash
+-   index in the field used where zero means not used. Every other value
+-   means used. The used field can be used as a first fast comparison for
+-   equality of the stored and the parameter value. This helps to prevent
+-   unnecessary expensive calls of strcmp.  */
+-int
+-hsearch_r (item, action, retval, htab)
+-     ENTRY item;
+-     ACTION action;
+-     ENTRY **retval;
+-     struct hsearch_data *htab;
+-{
+-  unsigned int hval;
+-  unsigned int count;
+-  unsigned int len = strlen (item.key);
+-  unsigned int idx;
+-
+-  /* Compute an value for the given string. Perhaps use a better method. */
+-  hval = len;
+-  count = len;
+-  while (count-- > 0)
+-    {
+-      hval <<= 4;
+-      hval += item.key[count];
+-    }
+-
+-  /* First hash function: simply take the modulo but prevent zero. */
+-  hval %= htab->size;
+-  if (hval == 0)
+-    ++hval;
+-
+-  /* The first index tried. */
+-  idx = hval;
+-
+-  if (htab->table[idx].used)
+-    {
+-      /* Further action might be required according to the action value. */
+-      unsigned hval2;
+-
+-      if (htab->table[idx].used == hval
+-	  && strcmp (item.key, htab->table[idx].entry.key) == 0)
+-	{
+-          if (action == ENTER)
+-	    htab->table[idx].entry.data = item.data;
+-
+-	  *retval = &htab->table[idx].entry;
+-	  return 1;
+-	}
+-
+-      /* Second hash function, as suggested in [Knuth] */
+-      hval2 = 1 + hval % (htab->size - 2);
+-
+-      do
+-	{
+-	  /* Because SIZE is prime this guarantees to step through all
+-             available indexes.  */
+-          if (idx <= hval2)
+-	    idx = htab->size + idx - hval2;
+-	  else
+-	    idx -= hval2;
+-
+-	  /* If we visited all entries leave the loop unsuccessfully.  */
+-	  if (idx == hval)
+-	    break;
+-
+-            /* If entry is found use it. */
+-          if (htab->table[idx].used == hval
+-	      && strcmp (item.key, htab->table[idx].entry.key) == 0)
+-	    {
+-              if (action == ENTER)
+-	        htab->table[idx].entry.data = item.data;
+-
+-	      *retval = &htab->table[idx].entry;
+-	      return 1;
+-	    }
+-	}
+-      while (htab->table[idx].used);
+-    }
+-
+-  /* An empty bucket has been found. */
+-  if (action == ENTER)
+-    {
+-      /* If table is full and another entry should be entered return
+-	 with error.  */
+-      if (action == ENTER && htab->filled == htab->size)
+-	{
+-	  __set_errno (ENOMEM);
+-	  *retval = NULL;
+-	  return 0;
+-	}
+-
+-      htab->table[idx].used  = hval;
+-      htab->table[idx].entry = item;
+-
+-      ++htab->filled;
+-
+-      *retval = &htab->table[idx].entry;
+-      return 1;
+-    }
+-
+-  __set_errno (ESRCH);
+-  *retval = NULL;
+-  return 0;
+-}
+diff -ruN alsa-lib-1.0.25/src/conf.c alsa-lib-1.0.25-patched/src/conf.c
+--- alsa-lib-1.0.25/src/conf.c	2012-01-25 02:56:56.000000000 -0500
++++ alsa-lib-1.0.25-patched/src/conf.c	2012-07-09 00:21:09.631302792 -0400
+@@ -428,7 +428,7 @@
+ 
+ #ifdef HAVE_LIBPTHREAD
+ static pthread_mutex_t snd_config_update_mutex =
+-				PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
++				{{{1,0,0,0,0,0,0,0,0,0}}};
+ #endif
+ 
+ struct _snd_config {
+@@ -496,7 +496,7 @@
+ 	if (!*str)
+ 		return -EINVAL;
+ 	errno = 0;
+-	if (sscanf(str, "%Li%n", &v, &endidx) < 1)
++	if (sscanf(str, "%lli%n", &v, &endidx) < 1)
+ 		return -EINVAL;
+ 	if (str[endidx])
+ 		return -EINVAL;
+@@ -1378,7 +1378,7 @@
+ 		snd_output_printf(out, "%ld", n->u.integer);
+ 		break;
+ 	case SND_CONFIG_TYPE_INTEGER64:
+-		snd_output_printf(out, "%Ld", n->u.integer64);
++		snd_output_printf(out, "%lld", n->u.integer64);
+ 		break;
+ 	case SND_CONFIG_TYPE_REAL:
+ 		snd_output_printf(out, "%-16g", n->u.real);
+@@ -2630,7 +2630,7 @@
+ 		{
+ 			char res[32];
+ 			int err;
+-			err = snprintf(res, sizeof(res), "%Li", config->u.integer64);
++			err = snprintf(res, sizeof(res), "%lli", config->u.integer64);
+ 			if (err < 0 || err == sizeof(res)) {
+ 				assert(0);
+ 				return -ENOMEM;
+diff -ruN alsa-lib-1.0.25/src/control/ctl_symbols_list.c alsa-lib-1.0.25-patched/src/control/ctl_symbols_list.c
+--- alsa-lib-1.0.25/src/control/ctl_symbols_list.c	1969-12-31 19:00:00.000000000 -0500
++++ alsa-lib-1.0.25-patched/src/control/ctl_symbols_list.c	2012-07-09 00:24:01.894287977 -0400
+@@ -0,0 +1,2 @@
++&_snd_module_control_shm,
++&_snd_module_control_ext,
+diff -ruN alsa-lib-1.0.25/src/pcm/mask_inline.h alsa-lib-1.0.25-patched/src/pcm/mask_inline.h
+--- alsa-lib-1.0.25/src/pcm/mask_inline.h	2012-01-25 02:56:56.000000000 -0500
++++ alsa-lib-1.0.25-patched/src/pcm/mask_inline.h	2012-07-09 00:21:53.324299034 -0400
+@@ -20,6 +20,7 @@
+  */
+   
+ #include <sys/types.h>
++#include <strings.h>
+ 
+ #define MASK_INLINE static inline
+ 
+diff -ruN alsa-lib-1.0.25/src/pcm/pcm_symbols_list.c alsa-lib-1.0.25-patched/src/pcm/pcm_symbols_list.c
+--- alsa-lib-1.0.25/src/pcm/pcm_symbols_list.c	1969-12-31 19:00:00.000000000 -0500
++++ alsa-lib-1.0.25-patched/src/pcm/pcm_symbols_list.c	2012-07-09 00:24:01.881287978 -0400
+@@ -0,0 +1,27 @@
++&_snd_module_pcm_copy,
++&_snd_module_pcm_linear,
++&_snd_module_pcm_route,
++&_snd_module_pcm_mulaw,
++&_snd_module_pcm_alaw,
++&_snd_module_pcm_adpcm,
++&_snd_module_pcm_rate,
++&_snd_module_pcm_plug,
++&_snd_module_pcm_multi,
++&_snd_module_pcm_shm,
++&_snd_module_pcm_file,
++&_snd_module_pcm_null,
++&_snd_module_pcm_empty,
++&_snd_module_pcm_share,
++&_snd_module_pcm_meter,
++&_snd_module_pcm_hooks,
++&_snd_module_pcm_lfloat,
++&_snd_module_pcm_ladspa,
++&_snd_module_pcm_dmix,
++&_snd_module_pcm_dshare,
++&_snd_module_pcm_dsnoop,
++&_snd_module_pcm_asym,
++&_snd_module_pcm_iec958,
++&_snd_module_pcm_softvol,
++&_snd_module_pcm_extplug,
++&_snd_module_pcm_ioplug,
++&_snd_module_pcm_mmap_emul,
+diff -ruN alsa-lib-1.0.25/test/midiloop.c alsa-lib-1.0.25-patched/test/midiloop.c
+--- alsa-lib-1.0.25/test/midiloop.c	2012-01-25 02:56:56.000000000 -0500
++++ alsa-lib-1.0.25-patched/test/midiloop.c	2012-07-09 00:21:10.572302711 -0400
+@@ -175,7 +175,7 @@
+ 	printf("output.status.xruns = %zi\n", snd_rawmidi_status_get_xruns(ostat));
+ 
+ 	diff = timediff(end, start);
+-	printf("Time diff: %Liusec (%Li bytes/sec)\n", diff, ((long long)opos * 1000000) / diff);
++	printf("Time diff: %lliusec (%lli bytes/sec)\n", diff, ((long long)opos * 1000000) / diff);
+ 
+ 	if (verbose) {
+ 		fprintf(stderr,"Closing\n");

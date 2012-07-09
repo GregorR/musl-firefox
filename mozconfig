@@ -1,0 +1,19 @@
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-@CONFIG_GUESS@
+mk_add_options MOZ_MAKE_FLAGS="-j9"
+
+ac_add_options --disable-necko-wifi
+ac_add_options --disable-jemalloc
+ac_add_options --disable-crashreporter
+ac_add_options --disable-updater
+ac_add_options --host=i486-linux-musl
+export CROSS_COMPILE=i486-linux-musl-
+
+export CC="${CROSS_COMPILE}gcc -D__musl__ -D_POSIX_SOURCE"
+export CXX="${CROSS_COMPILE}g++ -D__musl__ -D_POSIX_SOURCE -fpermissive"
+
+export OBJCOPY=${CROSS_COMPILE}objcopy
+export RANLIB=${CROSS_COMPILE}ranlib
+export AS=${CROSS_COMPILE}as
+export AR=${CROSS_COMPILE}ar
+export LD=${CROSS_COMPILE}ld
+export STRIP=${CROSS_COMPILE}strip
